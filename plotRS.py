@@ -62,96 +62,76 @@ t_start = datetime.datetime.now()
 # miu_incr = 0.15 #constraint for incremental change of MIU
 extreme_res = {}
 
-# Run for changing mu_max
+# Scenario switches: enable exactly one.
+RUN_CHANGE_MU_MAX = False
+RUN_CHANGE_T_TAR = False
+RUN_CHANGE_MU_MAX_OPTIMAL_MU = True
+
+
+def _t_dev_runs(value, baseline=1.2):
+    if np.isclose(value, baseline):
+        return [1, 2, 3, 4, 5, 6, 7]
+    return [2, 3, 4, 5, 6, 7]
+
+
+def _run_single_case(t_dev, t_tar, mu_max, out_name, opt=False, mu_opt=None):
+    extreme_res[t_dev] = (1, 3.5, 580, 850)
+    X_t, Y_t = RSroutines.RS_bulk_ncc(
+        extreme_res[t_dev], t_dev, t_tar,
+        remove_mu_constr=miu_incr,
+        dam_fun_Weitzman=dam_fun_Weitzman,
+        resol=resol1, mode='grid',
+        mu_max=mu_max,
+        opt=opt,
+        mu_opt=mu_opt if mu_opt is not None else np.arange(20),
+    )
+
+    points = np.column_stack((X_t, Y_t))
+    hull = scipy.spatial.ConvexHull(points)
+    np.savetxt(out_name, points[hull.vertices, :], delimiter=',')
+
+
 if __name__ == '__main__':
-	# list_of_runs = [13, 9, 5, 1]
-	# list_of_runs = [9, 7, 5, 1]
-	mu_max_range = np.linspace(1.2, 2.21, 5)
-	for mu_max in mu_max_range:
-		if np.isclose(mu_max, 1.2):
-			list_of_runs = [1, 2, 3, 4, 5, 6, 7] 
-		else:
-			list_of_runs = [2, 3, 4, 5, 6, 7]
+    scenario_flags = [
+        RUN_CHANGE_MU_MAX,
+        RUN_CHANGE_T_TAR,
+        RUN_CHANGE_MU_MAX_OPTIMAL_MU,
+    ]
+    if sum(scenario_flags) != 1:
+        raise ValueError(
+            "Enable exactly one scenario flag: "
+            "RUN_CHANGE_MU_MAX, RUN_CHANGE_T_TAR, RUN_CHANGE_MU_MAX_OPTIMAL_MU."
+        )
 
-		for t_dev in list_of_runs:
-			extreme_res[t_dev] = (1, 3.5, 580, 850)
-			X_t, Y_t = RSroutines.RS_bulk_ncc(
-				extreme_res[t_dev], t_dev, 17,
-				remove_mu_constr=miu_incr,
-				dam_fun_Weitzman=dam_fun_Weitzman,
-				resol=resol1, mode='grid',
-				mu_max=mu_max  # <- pass this down
-			)
+    if RUN_CHANGE_MU_MAX:
+        mu_max_range = np.linspace(1.2, 2.21, 5)
+        t_tar = 17
+        for mu_max in mu_max_range:
+            for t_dev in _t_dev_runs(mu_max, baseline=1.2):
+                out_name = f'plots_data/NCC_mu{mu_max:.2f}_tdev{t_dev}.csv'
+                _run_single_case(t_dev, t_tar, mu_max, out_name)
 
-			points = np.zeros([len(X_t), 2])
-			for k in range(len(X_t)):
-				points[k, 0] = X_t[k]
-				points[k, 1] = Y_t[k]
+    elif RUN_CHANGE_T_TAR:
+        mu_max = 1.2
+        t_tar_range = np.arange(17, 20, 1)
+        for t_tar in t_tar_range:
+            for t_dev in _t_dev_runs(t_tar, baseline=17):
+                out_name = f'plots_data/NCC_t_tar{t_tar:.2f}_tdev{t_dev}.csv'
+                _run_single_case(t_dev, t_tar, mu_max, out_name)
 
-			hull = scipy.spatial.ConvexHull(points)
-			filename = f'plots_data/NCC_mu{mu_max:.2f}_tdev{t_dev}.csv'
-			np.savetxt(filename, points[hull.vertices, :], delimiter=',')
-	print("Total time:", datetime.datetime.now() - t_start)
+    elif RUN_CHANGE_MU_MAX_OPTIMAL_MU:
+        _, mu_opt, _ = RSroutines.solve_vanilla_optimal_path()
+        if mu_opt is None:
+            raise RuntimeError("Failed to compute optimal path for mu_opt.")
 
-# # Run for changing t_tar
-# if __name__ == '__main__':
-# 	mu_max = 1.2
-# 	t_tar_range = np.arange(17, 20, 1)
-# 	for t_tar in t_tar_range:
-# 		if np.isclose(t_tar, 17):
-# 			list_of_runs = [1, 2, 3, 4, 5, 6, 7]
-# 		else:
-# 			list_of_runs = [2, 3, 4, 5, 6, 7]
+        mu_max_range = np.arange(1.2, 0.99, -0.05)
+        t_tar = 17
+        for mu_max in mu_max_range:
+            for t_dev in _t_dev_runs(mu_max, baseline=1.2):
+                out_name = f'plots_data/NCC_mu{mu_max:.2f}_tdev{t_dev}_mu_opt.csv'
+                _run_single_case(t_dev, t_tar, mu_max, out_name, opt=True, mu_opt=mu_opt)
 
-# 		for t_dev in list_of_runs:
-# 			extreme_res[t_dev] = (1, 3.5, 580, 850)
-# 			X_t, Y_t = RSroutines.RS_bulk_ncc(
-# 				extreme_res[t_dev], t_dev, t_tar,
-# 				remove_mu_constr=miu_incr,
-# 				dam_fun_Weitzman=dam_fun_Weitzman,
-# 				resol=resol1, mode='grid',
-# 				mu_max=mu_max, opt = False  # <- pass this down
-# 			)
-
-# 			points = np.zeros([len(X_t), 2])
-# 			for k in range(len(X_t)):
-# 				points[k, 0] = X_t[k]
-# 				points[k, 1] = Y_t[k]
-
-# 			hull = scipy.spatial.ConvexHull(points)
-# 			filename = f'plots_data/NCC_t_tar{t_tar:.2f}_tdev{t_dev}.csv'
-# 			np.savetxt(filename, points[hull.vertices, :], delimiter=',')
-# 	print("Total time:", datetime.datetime.now() - t_start)
-
-
-# t, mu_opt, S = RSroutines.solve_vanilla_optimal_path()
-
-# # Run for changing mu_max for optimal mu
-# if __name__ == '__main__':
-# 	mu_max_range = np.arange(1.2, 0.99, -0.05)
-# 	t_tar = 17
-# 	for mu_max in mu_max_range:
-# 		if np.isclose(mu_max, 1.2):
-# 			list_of_runs = [1, 2, 3, 4, 5, 6, 7]
-# 		else:
-# 			list_of_runs = [2, 3, 4, 5, 6, 7]
-# 		for t_dev in list_of_runs:
-# 			extreme_res[t_dev] = (1, 3.5, 580, 850)
-# 			X_t, Y_t = RSroutines.RS_bulk_ncc(
-# 				extreme_res[t_dev], t_dev, t_tar,
-# 				remove_mu_constr=miu_incr,
-# 				dam_fun_Weitzman=dam_fun_Weitzman,
-# 				resol=resol1, mode='grid',
-# 				mu_max=mu_max, opt = 'True', mu_opt=mu_opt  # <- pass this down
-# 			)
-# 			points = np.zeros([len(X_t), 2])
-# 			for k in range(len(X_t)):
-# 				points[k, 0] = X_t[k]
-# 				points[k, 1] = Y_t[k]
-# 			hull = scipy.spatial.ConvexHull(points)
-# 			filename = f'plots_data/NCC_mu{mu_max:.2f}_tdev{t_dev}_mu_opt.csv'
-# 			np.savetxt(filename, points[hull.vertices, :], delimiter=',')
-# 	print("Total time:", datetime.datetime.now() - t_start)
+    print("Total time:", datetime.datetime.now() - t_start)
 
 
 	# list_of_runs = [9, 7, 5]
