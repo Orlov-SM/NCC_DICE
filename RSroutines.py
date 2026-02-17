@@ -37,19 +37,24 @@ def solve_vanilla_optimal_path(duration=100, disc_points=None, mu_max=1.2):
 
     # Make the vanilla NCC model
     m = ncc_rs.makeNCCModel(m, model_mode='vanilla')
+    m.mu_max = mu_max
 
     # Solve
     solver = SolverFactory("ipopt")
     solver.options['halt_on_ampl_error'] = 'yes'
     solver.options['acceptable_tol'] = 1e-6
     solver.options['constr_viol_tol'] = 1e-9
-    solver.options['max_iter'] = 1000
+    solver.options['max_iter'] = 7000
     results = solver.solve(m, tee=False)
 
     if (results.solver.status != SolverStatus.ok or
         results.solver.termination_condition != TerminationCondition.optimal):
         print("⚠️ Solver failed or did not reach optimality.")
-        return None, None
+        print(
+            f"Solver status={results.solver.status}, "
+            f"termination={results.solver.termination_condition}"
+        )
+        return None, None, None
 
     # Extract values
     mu_vals = []
@@ -185,7 +190,7 @@ def RS_bulk_ncc(bounds, t_dev, t_tar, remove_mu_constr, dam_fun_Weitzman, resol 
                     solver.options['constr_viol_tol'] = 1e-9
                     solver.options['max_iter'] = 700
                     try:
-                        results = solver.solve(m,tee=True)
+                        results = solver.solve(m,tee=False)
                         if (results.solver.status == pyomo.opt.SolverStatus.ok) and (results.solver.termination_condition == pyomo.opt.TerminationCondition.optimal):
                             print('SOLVED OK t_dev = ' + str(t_dev) + '; iter '+ str(iter_counts) + ' out of total ' + str(4*(n_rays+1)))
                         else:
@@ -286,12 +291,12 @@ def RS_bulk_ncc(bounds, t_dev, t_tar, remove_mu_constr, dam_fun_Weitzman, resol 
             futures = [
                 executor.submit(
                     solve_instance_grid,
-                    uc, delta, bounds, t_dev, duration, dicsr_points, resol, mu_max, t_tar
+                    uc, delta, bounds, t_dev, duration, dicsr_points, n_rays, mu_max, t_tar
                 )
                 for uc in util_controls
                 for delta in range(n_rays + 1)
             ]
-            for future in futures:
+            for idx, future in enumerate(futures, start=1):
                 uc, delta, q_val, tat_val, success = future.result()
                 if success:
                     Xboundary[(uc, delta)] = q_val
@@ -299,8 +304,8 @@ def RS_bulk_ncc(bounds, t_dev, t_tar, remove_mu_constr, dam_fun_Weitzman, resol 
                 else:
                     badruns_counts += 1
                     print(f"Failed for util_control={uc}, delta={delta}")
-                if (delta+1) % 20 == 0:
-                    print(f"{coef23+1} out of {n_coef23}, bad runs: {badruns_counts}")
+                if idx % 20 == 0:
+                    print(f"{idx} out of {len(futures)}, bad runs: {badruns_counts}")
     elif mode == 'parallel':
         with ProcessPoolExecutor(max_workers=12) as executor:
             futures = [executor.submit(solve_instance, coef23, duration, t_dev, n_coef23, dicsr_points, mu_max, t_tar) for coef23 in range(n_coef23)]
@@ -431,7 +436,7 @@ def solve_instance(coef23, duration, t_dev, n_coef23, dicsr_points, mu_max=1.2, 
     except Exception as e:
         return coef23, None, None, False
 
-def solve_instance_grid(util_control, delta, bounds, t_dev, duration, dicsr_points, resol, mu_max=1.2, t_tar=17):
+def solve_instance_grid(util_control, delta, bounds, t_dev, duration, dicsr_points, n_rays, mu_max=1.2, t_tar=17):
     try:
         m = ConcreteModel()
         m.t = ContinuousSet(bounds=(0, duration), initialize=dicsr_points)
@@ -456,10 +461,10 @@ def solve_instance_grid(util_control, delta, bounds, t_dev, duration, dicsr_poin
         m.mu_max = mu_max
 
         if util_control[0] == 0:
-            m.TAT_IPCC[t_tar].fix(bounds[0] + delta * (bounds[1] - bounds[0]) / resol)
+            m.TAT_IPCC[t_tar].fix(bounds[0] + delta * (bounds[1] - bounds[0]) / n_rays)
             m.Q[t_tar].unfix()
         else:
-            m.Q[t_tar].fix(bounds[2] + delta * (bounds[3] - bounds[2]) / resol)
+            m.Q[t_tar].fix(bounds[2] + delta * (bounds[3] - bounds[2]) / n_rays)
             m.TAT_IPCC[t_tar].unfix()
 
         solver = SolverFactory('ipopt')
@@ -479,3 +484,4 @@ def solve_instance_grid(util_control, delta, bounds, t_dev, duration, dicsr_poin
     except Exception as e:
         print(f"Failed: {e}")
         return (util_control, delta, None, None, False)
+
