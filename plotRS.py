@@ -36,37 +36,37 @@ import scenario_config as sc
 ## i) This part computes RS at t_tar for the ***NCC paper*** for
 ## all deviations from the BAU path at specified time instant t_dev
 ####################################
-miu_incr = False #no incremental constraints
+remove_mu_constr = False # if True, disable post-2160 incremental mu constraint
+mu_incr = sc.DEFAULT_MU_INCR
 dam_fun_Weitzman = False #select the damage function
 
 
 
 
 # resol1 =  (1, 150) #defines the level of approximation, higher product of this numbers gives better approximation
-resol1 =  (1, 10)
+resol1 =  (1, 15) # (1, 80) - for nice plots
 
 
 t_start = datetime.datetime.now()
 # miu_incr = 0.15 #constraint for incremental change of MIU
-extreme_res = {}
-
 # Scenario switches: enable exactly one.
-RUN_CHANGE_MU_MAX = True
+RUN_CHANGE_MU_MAX = False
 RUN_CHANGE_T_TAR = False
 RUN_CHANGE_MU_MAX_OPTIMAL_MU = False
-RS_MODE = 'grid'  # 'grid', 'parallel_grid', 'parallel', 'mod_util', 'ray'
+RUN_CHANGE_MU_INCR = True
+RS_MODE = 'parallel_grid'  # 'grid', 'parallel_grid', 'parallel', 'mod_util', 'ray'
 
 
-def _run_single_case(t_dev, t_tar, mu_max, out_name, opt=False, mu_opt=None):
-    extreme_res[t_dev] = (1, 3.5, 580, 850)
+def _run_single_case(t_dev, t_tar, mu_max, out_name, opt=False, mu_opt=None, remove_mu_constr=False, mu_incr=1.1):
     X_t, Y_t = RSroutines.RS_bulk_ncc(
-        extreme_res[t_dev], t_dev, t_tar,
-        remove_mu_constr=miu_incr,
+        None, t_dev, t_tar,
+        remove_mu_constr=remove_mu_constr,
         dam_fun_Weitzman=dam_fun_Weitzman,
         resol=resol1, mode=RS_MODE,
         mu_max=mu_max,
         opt=opt,
         mu_opt=mu_opt if mu_opt is not None else np.arange(20),
+        mu_incr=mu_incr,
     )
 
     points = np.column_stack((X_t, Y_t))
@@ -79,11 +79,12 @@ if __name__ == '__main__':
         RUN_CHANGE_MU_MAX,
         RUN_CHANGE_T_TAR,
         RUN_CHANGE_MU_MAX_OPTIMAL_MU,
+        RUN_CHANGE_MU_INCR,
     ]
     if sum(scenario_flags) != 1:
         raise ValueError(
             "Enable exactly one scenario flag: "
-            "RUN_CHANGE_MU_MAX, RUN_CHANGE_T_TAR, RUN_CHANGE_MU_MAX_OPTIMAL_MU."
+            "RUN_CHANGE_MU_MAX, RUN_CHANGE_T_TAR, RUN_CHANGE_MU_MAX_OPTIMAL_MU, RUN_CHANGE_MU_INCR."
         )
 
     if RUN_CHANGE_MU_MAX:
@@ -92,7 +93,7 @@ if __name__ == '__main__':
         for mu_max in mu_max_range:
             for t_dev in sc.t_dev_runs(mu_max, baseline=sc.DEFAULT_MU_MAX):
                 out_name = sc.data_filename(sc.SCENARIO_CHANGE_MU_MAX, mu_max, t_dev)
-                _run_single_case(t_dev, t_tar, mu_max, out_name)
+                _run_single_case(t_dev, t_tar, mu_max, out_name, remove_mu_constr=remove_mu_constr, mu_incr=mu_incr)
 
     elif RUN_CHANGE_T_TAR:
         mu_max = sc.DEFAULT_MU_MAX
@@ -100,7 +101,7 @@ if __name__ == '__main__':
         for t_tar in t_tar_range:
             for t_dev in sc.t_dev_runs(t_tar, baseline=sc.DEFAULT_T_TAR):
                 out_name = sc.data_filename(sc.SCENARIO_CHANGE_T_TAR, t_tar, t_dev)
-                _run_single_case(t_dev, t_tar, mu_max, out_name)
+                _run_single_case(t_dev, t_tar, mu_max, out_name, remove_mu_constr=remove_mu_constr, mu_incr=mu_incr)
 
     elif RUN_CHANGE_MU_MAX_OPTIMAL_MU:
         t_tar = sc.DEFAULT_T_TAR
@@ -112,6 +113,32 @@ if __name__ == '__main__':
         for mu_max in mu_max_range:
             for t_dev in sc.t_dev_runs(mu_max, baseline=sc.DEFAULT_MU_MAX):
                 out_name = sc.data_filename(sc.SCENARIO_CHANGE_MU_MAX_OPTIMAL_MU, mu_max, t_dev)
-                _run_single_case(t_dev, t_tar, mu_max, out_name, opt=True, mu_opt=mu_opt)
+                _run_single_case(
+                    t_dev,
+                    t_tar,
+                    mu_max,
+                    out_name,
+                    opt=True,
+                    mu_opt=mu_opt,
+                    remove_mu_constr=remove_mu_constr,
+                    mu_incr=mu_incr,
+                )
+
+    elif RUN_CHANGE_MU_INCR:
+        t_tar = sc.DEFAULT_T_TAR
+        mu_max = sc.DEFAULT_MU_MAX
+        for mu_incr_value in sc.MU_INCR_RANGE:
+            rm_constraint = mu_incr_value == sc.MU_INCR_NO_CONSTRAINT
+            mu_incr_numeric = sc.DEFAULT_MU_INCR if rm_constraint else float(mu_incr_value)
+            for t_dev in sc.t_dev_runs(mu_incr_value, baseline=sc.DEFAULT_MU_INCR):
+                out_name = sc.data_filename(sc.SCENARIO_CHANGE_MU_INCR, mu_incr_value, t_dev)
+                _run_single_case(
+                    t_dev,
+                    t_tar,
+                    mu_max,
+                    out_name,
+                    remove_mu_constr=rm_constraint,
+                    mu_incr=mu_incr_numeric,
+                )
 
     print("Total time:", datetime.datetime.now() - t_start)
