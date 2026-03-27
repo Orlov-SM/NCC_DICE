@@ -15,7 +15,27 @@ with open("plotRS.py") as f:
     exec(code)
 """
 
-import matplotlib.pyplot as plt
+import os
+import sys
+
+# Keep Matplotlib cache writable when running from environments where the home
+# config dir is unavailable, which otherwise slows or blocks multiprocessing.
+os.environ.setdefault('MPLCONFIGDIR', os.path.join(os.getcwd(), '.mplconfig'))
+os.makedirs(os.environ['MPLCONFIGDIR'], exist_ok=True)
+
+# On macOS, the parallel IPOPT runs can oversubscribe CPU threads through
+# vecLib/BLAS unless each worker is forced to stay single-threaded.
+if sys.platform == 'darwin':
+    for env_name in (
+        'VECLIB_MAXIMUM_THREADS',
+        'OPENBLAS_NUM_THREADS',
+        'OMP_NUM_THREADS',
+        'MKL_NUM_THREADS',
+        'BLIS_NUM_THREADS',
+        'NUMEXPR_NUM_THREADS',
+    ):
+        os.environ.setdefault(env_name, '1')
+
 import numpy as np
 from pyomo.environ import *
 from pyomo.dae import *
@@ -50,10 +70,10 @@ resol1 =  (1, 15) # (1, 80) - for nice plots
 t_start = datetime.datetime.now()
 # miu_incr = 0.15 #constraint for incremental change of MIU
 # Scenario switches: enable exactly one.
-RUN_CHANGE_MU_MAX = False
+RUN_CHANGE_MU_MAX = True
 RUN_CHANGE_T_TAR = False
 RUN_CHANGE_MU_MAX_OPTIMAL_MU = False
-RUN_CHANGE_MU_INCR = True
+RUN_CHANGE_MU_INCR = False
 RS_MODE = 'parallel_grid'  # 'grid', 'parallel_grid', 'parallel', 'mod_util', 'ray'
 
 
