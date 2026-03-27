@@ -1,18 +1,26 @@
 from pathlib import Path
+import os
 
+os.environ.setdefault("MPLCONFIGDIR", os.path.join(os.getcwd(), ".mplconfig"))
+Path(os.environ["MPLCONFIGDIR"]).mkdir(parents=True, exist_ok=True)
+
+import matplotlib
+matplotlib.use("Agg")
 import matplotlib.pyplot as plt
 import numpy as np
 from matplotlib.patches import Polygon
 
 import scenario_config as sc
+from scaling_utils import compute_global_scaling_bounds, normalize_points
 
 
 # Enable any subset of scenarios for plotting.
-PLOT_CHANGE_MU_MAX = False
+PLOT_CHANGE_MU_MAX = True
 PLOT_CHANGE_T_TAR = False
 PLOT_CHANGE_MU_MAX_OPTIMAL_MU = False
-PLOT_CHANGE_MU_INCR = True
+PLOT_CHANGE_MU_INCR = False
 PLOT_WITH_MARKERS = False  # Set False for line-only plots (no markers).
+PLOT_IN_SCALED_COORDS = False  # Uses one common scale across all series in a figure.
 
 OUTPUT_DIR = Path("plots_png")
 OUTPUT_DIR.mkdir(exist_ok=True)
@@ -131,18 +139,18 @@ def _plot_one_scenario(scenario_name):
 
     for sweep_value in sweep_values:
         fig, ax = plt.subplots(figsize=(8, 6), dpi=150)
-        all_points = []
+        series_to_plot = []
 
         if reference_points is not None:
             ref_color, ref_marker = STYLE_BY_TDEV[reference_t_dev]
-            _plot_series(
-                ax,
-                reference_points,
-                ref_color,
-                ref_marker,
-                f"Year {2015 + 5 * reference_t_dev} (reference)",
+            series_to_plot.append(
+                (
+                    f"Year {2015 + 5 * reference_t_dev} (reference)",
+                    reference_points,
+                    ref_color,
+                    ref_marker,
+                )
             )
-            all_points.append(reference_points)
 
         for t_dev in sc.t_dev_runs(sweep_value, baseline):
             if reference_points is not None and t_dev == reference_t_dev:
@@ -154,31 +162,50 @@ def _plot_one_scenario(scenario_name):
 
             points = _load_points(path)
             color, marker = STYLE_BY_TDEV[t_dev]
-            _plot_series(ax, points, color, marker, f"Year {2015 + 5 * t_dev}")
-            all_points.append(points)
+            series_to_plot.append((f"Year {2015 + 5 * t_dev}", points, color, marker))
 
-        if not all_points:
+        if not series_to_plot:
             plt.close(fig)
             print(f"No plottable points for scenario={scenario_name}, sweep={_format_sweep_value(sweep_value)}")
             continue
 
-        merged = np.vstack(all_points)
+        raw_all_points = [points for _, points, _, _ in series_to_plot]
+        if PLOT_IN_SCALED_COORDS:
+            scaling_bounds = compute_global_scaling_bounds(raw_all_points)
+            plotted_series = [
+                (label, normalize_points(points, scaling_bounds), color, marker)
+                for label, points, color, marker in series_to_plot
+            ]
+        else:
+            plotted_series = series_to_plot
+
+        for label, points, color, marker in plotted_series:
+            _plot_series(ax, points, color, marker, label)
+
+        merged = np.vstack([points for _, points, _, _ in plotted_series])
         x_min, x_max = merged[:, 0].min(), merged[:, 0].max()
         y_min, y_max = merged[:, 1].min(), merged[:, 1].max()
         x_pad = max(5.0, 0.05 * (x_max - x_min))
         y_pad = max(0.05, 0.08 * (y_max - y_min))
 
-        ax.set_xlabel("Q in 2100")
-        ax.set_ylabel("Delta T in 2100 (C)")
+        if PLOT_IN_SCALED_COORDS:
+            x_pad = max(0.02, 0.05 * (x_max - x_min))
+            y_pad = max(0.02, 0.08 * (y_max - y_min))
+            ax.set_xlabel("Scaled Q")
+            ax.set_ylabel("Scaled Delta T")
+        else:
+            ax.set_xlabel("Q in 2100")
+            ax.set_ylabel("Delta T in 2100 (C)")
         sweep_label, title = _scenario_label(scenario_name, sweep_value)
         ax.set_title(title)
         ax.set_xlim([x_min - x_pad, x_max + x_pad])
-        ax.set_ylim([0.0, y_max + y_pad])
+        ax.set_ylim([max(0.0, y_min - y_pad), y_max + y_pad] if not PLOT_IN_SCALED_COORDS else [y_min - y_pad, y_max + y_pad])
         ax.grid(True)
         ax.legend(loc="center", frameon=True)
         plt.tight_layout()
 
-        out_name = f"{scenario_name}_{_format_sweep_value(sweep_value)}.png"
+        suffix = "_scaled" if PLOT_IN_SCALED_COORDS else ""
+        out_name = f"{scenario_name}_{_format_sweep_value(sweep_value)}{suffix}.png"
         out_path = OUTPUT_DIR / out_name
         plt.savefig(out_path)
         plt.close(fig)
