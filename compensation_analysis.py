@@ -25,7 +25,7 @@ from geometry_utils import (
 from scaling_utils import ScalingBounds, normalize_points
 
 
-OUTPUT_DIR = Path("plots_png") / "compensation"
+OUTPUT_DIR = Path("plots_png") / "compensation_mu_max"
 OUTPUT_DIR.mkdir(parents=True, exist_ok=True)
 
 plt.rcParams.update(
@@ -266,6 +266,26 @@ def plot_raw_vs_scaled_comparison(base: BorderScenario, comp: BorderScenario, *,
 
 
 def plot_lost_region(base: BorderScenario, comp: BorderScenario, *, annotate_loss: float) -> tuple[Path, dict[str, float]]:
+    fig, ax = plt.subplots(figsize=(8, 6), dpi=150)
+    debug_stats = draw_lost_region_panel(ax, base, comp, annotate_loss=annotate_loss)
+    plt.tight_layout()
+
+    out_path = OUTPUT_DIR / (
+        f"loss_region_mu{base.sweep_value:.2f}_tdev{base.t_dev}"
+        f"_vs_mu{comp.sweep_value:.2f}_tdev{comp.t_dev}.png"
+    )
+    plt.savefig(out_path)
+    plt.close(fig)
+    return out_path, debug_stats
+
+
+def draw_lost_region_panel(
+    ax,
+    base: BorderScenario,
+    comp: BorderScenario,
+    *,
+    annotate_loss: float,
+) -> dict[str, float]:
     base_polygon, base_debug = build_polygon_from_border(
         base.scaled_points,
         label=f"baseline mu_max={base.sweep_value:.2f}, t_dev={base.t_dev}",
@@ -278,7 +298,6 @@ def plot_lost_region(base: BorderScenario, comp: BorderScenario, *, annotate_los
     )
     lost_area, relative_loss, lost_geometry = relative_area_loss(base_polygon, comp_polygon)
 
-    fig, ax = plt.subplots(figsize=(8, 6), dpi=150)
     _plot_border(
         ax,
         base.scaled_points,
@@ -316,16 +335,7 @@ def plot_lost_region(base: BorderScenario, comp: BorderScenario, *, annotate_los
         ha="left",
         bbox={"facecolor": "white", "alpha": 0.8, "edgecolor": "0.7"},
     )
-    plt.tight_layout()
-
-    out_path = OUTPUT_DIR / (
-        f"loss_region_mu{base.sweep_value:.2f}_tdev{base.t_dev}"
-        f"_vs_mu{comp.sweep_value:.2f}_tdev{comp.t_dev}.png"
-    )
-    plt.savefig(out_path)
-    plt.close(fig)
-
-    debug_stats = {
+    return {
         "base_area_scaled": geometry_area(base_polygon),
         "comp_area_scaled": geometry_area(comp_polygon),
         "lost_area_scaled": lost_area,
@@ -333,7 +343,6 @@ def plot_lost_region(base: BorderScenario, comp: BorderScenario, *, annotate_los
         "base_signed_area": base_debug.signed_area,
         "comp_signed_area": comp_debug.signed_area,
     }
-    return out_path, debug_stats
 
 
 def compute_mu_max_loss_series(base_mu_max: float, compare_values: list[float]) -> dict[int, list[tuple[float, float]]]:
@@ -462,7 +471,7 @@ def plot_mu_max_loss_series(losses_by_t_dev: dict[int, list[tuple[float, float]]
             [item[1] for item in values],
             marker="o",
             linewidth=1.5,
-            label=f"t_dev={t_dev}",
+            label=f"Delay to {t_dev_to_year(t_dev)}",
         )
 
     ax.set_xlabel("mu_max")
@@ -475,7 +484,7 @@ def plot_mu_max_loss_series(losses_by_t_dev: dict[int, list[tuple[float, float]]
     ax.legend(loc="best")
     plt.tight_layout()
 
-    out_path = OUTPUT_DIR / "mu_max_relative_loss.png"
+    out_path = OUTPUT_DIR / "compensation_mu_max_relative_loss.png"
     plt.savefig(out_path)
     plt.close(fig)
     return out_path
@@ -486,6 +495,31 @@ def plot_delay_compensation_example(
     delayed: BorderScenario,
     compensated: BorderScenario,
 ) -> tuple[Path, dict[str, float]]:
+    fig, ax = plt.subplots(figsize=(9, 7), dpi=150)
+    stats = draw_delay_compensation_panel(ax, baseline, delayed, compensated)
+    plt.tight_layout()
+
+    out_path = OUTPUT_DIR / (
+        f"delay_compensation_mu{baseline.sweep_value:.2f}_tdev{baseline.t_dev}"
+        f"_delay{delayed.t_dev}_compmu{compensated.sweep_value:.2f}.png"
+    )
+    plt.savefig(out_path)
+    plt.close(fig)
+
+    return out_path, stats
+
+
+def draw_delay_compensation_panel(
+    ax,
+    baseline: BorderScenario,
+    delayed: BorderScenario,
+    compensated: BorderScenario,
+    *,
+    show_title: bool = True,
+    annotation_xy: tuple[float, float] = (0.02, 0.98),
+    annotation_ha: str = "left",
+    annotation_va: str = "top",
+) -> dict[str, float]:
     baseline_polygon, _ = build_polygon_from_border(
         baseline.scaled_points,
         label=f"baseline mu_max={baseline.sweep_value:.2f}, t_dev={baseline.t_dev}",
@@ -510,8 +544,6 @@ def plot_delay_compensation_example(
     )
     recovered_loss_geometry = delayed_lost_geometry.intersection(compensated_polygon)
     recovered_loss_area = geometry_area(recovered_loss_geometry)
-
-    fig, ax = plt.subplots(figsize=(9, 7), dpi=150)
 
     baseline_color = "tab:blue"
     delayed_color = "tab:orange"
@@ -550,37 +582,29 @@ def plot_delay_compensation_example(
 
     ax.set_xlabel("Scaled Q")
     ax.set_ylabel("Scaled Delta T")
-    ax.set_title(
-        "Delayed mitigation vs compensation\n"
-        f"baseline mu_max={baseline.sweep_value:.2f}, year {t_dev_to_year(baseline.t_dev)}"
-    )
+    if show_title:
+        ax.set_title(
+            "Delayed mitigation vs compensation\n"
+            f"baseline mu_max={baseline.sweep_value:.2f}, year {t_dev_to_year(baseline.t_dev)}"
+        )
     ax.set_xlim(*common_scaled_axis_limits()[:2])
     ax.set_ylim(*common_scaled_axis_limits()[2:])
     ax.grid(True)
     ax.legend(loc="best")
     ax.text(
-        0.02,
-        0.98,
+        annotation_xy[0],
+        annotation_xy[1],
         (
             f"Delay loss = {delayed_relative_loss:.4f}\n"
             f"After compensation = {compensated_relative_loss:.4f}\n"
             f"Recovered loss = {recovered_loss_area:.4f}"
         ),
         transform=ax.transAxes,
-        va="top",
-        ha="left",
+        va=annotation_va,
+        ha=annotation_ha,
         bbox={"facecolor": "white", "alpha": 0.85, "edgecolor": "0.7"},
     )
-    plt.tight_layout()
-
-    out_path = OUTPUT_DIR / (
-        f"delay_compensation_mu{baseline.sweep_value:.2f}_tdev{baseline.t_dev}"
-        f"_delay{delayed.t_dev}_compmu{compensated.sweep_value:.2f}.png"
-    )
-    plt.savefig(out_path)
-    plt.close(fig)
-
-    return out_path, {
+    return {
         "baseline_area_scaled": geometry_area(baseline_polygon),
         "delayed_area_scaled": geometry_area(delayed_polygon),
         "compensated_area_scaled": geometry_area(compensated_polygon),
@@ -630,6 +654,46 @@ def run_mu_12_tdev_series() -> None:
             f"lost_area={debug_stats['lost_area_scaled']:.6f}, "
             f"relative_loss={relative_loss:.6f}"
         )
+
+
+def run_mu_12_loss_region_panel() -> None:
+    if not SHAPELY_AVAILABLE:
+        raise RuntimeError("mu=1.2 summary panel requires shapely.")
+
+    panel_t_devs = [4, 5, 6, 7, 8, 9]
+    fig, axes = plt.subplots(2, 3, figsize=(24, 12), dpi=150)
+    axes = axes.ravel()
+
+    for idx, comp_t_dev in enumerate(panel_t_devs):
+        base, comp = load_scaled_mu_max_comparison(
+            SCALING_BASELINE_MU_MAX,
+            SCALING_BASELINE_T_DEV,
+            SCALING_BASELINE_MU_MAX,
+            comp_t_dev,
+        )
+        base_polygon, _ = build_polygon_from_border(
+            base.scaled_points,
+            label=f"baseline mu_max={base.sweep_value:.2f}, t_dev={base.t_dev}",
+            repair_invalid=REPAIR_INVALID_POLYGONS,
+        )
+        comp_polygon, _ = build_polygon_from_border(
+            comp.scaled_points,
+            label=f"comp mu_max={comp.sweep_value:.2f}, t_dev={comp.t_dev}",
+            repair_invalid=REPAIR_INVALID_POLYGONS,
+        )
+        _, relative_loss, _ = relative_area_loss(base_polygon, comp_polygon)
+        draw_lost_region_panel(axes[idx], base, comp, annotate_loss=relative_loss)
+
+    fig.suptitle(
+        f"Loss regions for delayed mitigation: baseline mu_max={SCALING_BASELINE_MU_MAX:.2f}, "
+        f"year {t_dev_to_year(SCALING_BASELINE_T_DEV)}",
+        fontsize=24,
+    )
+    plt.tight_layout()
+    out_path = OUTPUT_DIR / "compensation_mu_max_loss_region_panel_2x3.png"
+    plt.savefig(out_path)
+    plt.close(fig)
+    print(f"Saved mu_max loss-region 2x3 panel: {out_path}")
 
 
 def run_mu_max_loss_regions() -> None:
@@ -709,6 +773,60 @@ def run_delay_compensation_series() -> None:
                 f"after_compensation={stats['compensated_relative_loss']:.6f}, "
                 f"recovered_loss={stats['recovered_loss_area_scaled']:.6f}"
             )
+
+
+def run_delay_compensation_panels() -> None:
+    if not SHAPELY_AVAILABLE:
+        raise RuntimeError("delay compensation panels require shapely.")
+
+    baseline, _ = load_scaled_mu_max_comparison(
+        SCALING_BASELINE_MU_MAX,
+        SCALING_BASELINE_T_DEV,
+        SCALING_BASELINE_MU_MAX,
+        SCALING_BASELINE_T_DEV,
+    )
+    panel_t_devs = [6, 7, 8]
+    panel_mu_values = [1.3, 1.4, 1.5, 1.6, 1.7, 1.8]
+
+    for delay_t_dev in panel_t_devs:
+        _, delayed = load_scaled_mu_max_comparison(
+            SCALING_BASELINE_MU_MAX,
+            SCALING_BASELINE_T_DEV,
+            SCALING_BASELINE_MU_MAX,
+            delay_t_dev,
+        )
+
+        fig, axes = plt.subplots(2, 3, figsize=(24, 12), dpi=150)
+        axes = axes.ravel()
+
+        for idx, comp_mu_max in enumerate(panel_mu_values):
+            _, compensated = load_scaled_mu_max_comparison(
+                SCALING_BASELINE_MU_MAX,
+                SCALING_BASELINE_T_DEV,
+                comp_mu_max,
+                delay_t_dev,
+            )
+            draw_delay_compensation_panel(
+                axes[idx],
+                baseline,
+                delayed,
+                compensated,
+                show_title=False,
+                annotation_xy=(0.5, 0.5),
+                annotation_ha="center",
+                annotation_va="center",
+            )
+
+        plt.tight_layout()
+        fig.subplots_adjust(
+            top=0.97,
+            wspace=0.20,
+            hspace=0.22,
+        )
+        out_path = OUTPUT_DIR / f"compensation_mu_max_delay_panel_delay{delay_t_dev}_2x3.png"
+        plt.savefig(out_path)
+        plt.close(fig)
+        print(f"Saved mu_max delay-compensation 2x3 panel: {out_path}")
 
 
 def run_delay_compensation_example() -> None:
@@ -805,7 +923,7 @@ def run_mu_max_analysis() -> None:
         raise RuntimeError("mu_max analysis requires shapely.")
     rows = compute_mu_max_loss_table(BASELINE_MU_MAX, COMPARE_MU_MAX_VALUES)
     losses_by_t_dev = compute_mu_max_loss_series(BASELINE_MU_MAX, COMPARE_MU_MAX_VALUES)
-    xlsx_path = save_loss_table_xlsx(rows, OUTPUT_DIR / "mu_max_loss_table.xlsx")
+    xlsx_path = save_loss_table_xlsx(rows, OUTPUT_DIR / "compensation_mu_max_loss_table.xlsx")
     out_path = plot_mu_max_loss_series(losses_by_t_dev)
     print(f"Saved mu_max loss table: {xlsx_path}")
     print(f"Saved mu_max loss plot: {out_path}")
@@ -825,16 +943,22 @@ def run_mu_max_analysis() -> None:
         print(f"t_dev={t_dev}: {values}")
 
 
-if __name__ == "__main__":
+def main() -> None:
     if RUN_DEMO:
         run_demo()
     if RUN_MU_MAX_ANALYSIS:
         run_mu_max_analysis()
     if RUN_MU_12_TDEV_SERIES:
         run_mu_12_tdev_series()
+        run_mu_12_loss_region_panel()
     if RUN_MU_MAX_LOSS_REGIONS:
         run_mu_max_loss_regions()
     if RUN_DELAY_COMPENSATION_EXAMPLE:
         run_delay_compensation_example()
     if RUN_DELAY_COMPENSATION_SERIES:
         run_delay_compensation_series()
+        run_delay_compensation_panels()
+
+
+if __name__ == "__main__":
+    main()

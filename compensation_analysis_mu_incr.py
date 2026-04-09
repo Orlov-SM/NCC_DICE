@@ -26,7 +26,7 @@ from geometry_utils import (
 from scaling_utils import ScalingBounds, normalize_points
 
 
-OUTPUT_DIR = Path("plots_png") / "compensation_muincr"
+OUTPUT_DIR = Path("plots_png") / "compensation_mu_incr"
 OUTPUT_DIR.mkdir(parents=True, exist_ok=True)
 
 plt.rcParams.update(
@@ -255,6 +255,26 @@ def plot_delay_compensation_example(
     delayed: BorderScenario,
     compensated: BorderScenario,
 ) -> tuple[Path, dict[str, float]]:
+    fig, ax = plt.subplots(figsize=(9, 7), dpi=150)
+    stats = draw_delay_compensation_panel(ax, baseline, delayed, compensated)
+    plt.tight_layout()
+
+    out_path = OUTPUT_DIR / (
+        f"delay_compensation_muincr{format_muincr(baseline.sweep_value)}_tdev{baseline.t_dev}"
+        f"_delay{delayed.t_dev}_compincr{format_muincr(compensated.sweep_value)}.png"
+    )
+    plt.savefig(out_path)
+    plt.close(fig)
+
+    return out_path, stats
+
+
+def draw_delay_compensation_panel(
+    ax,
+    baseline: BorderScenario,
+    delayed: BorderScenario,
+    compensated: BorderScenario,
+) -> dict[str, float]:
     baseline_polygon, _ = build_polygon_from_border(
         baseline.scaled_points,
         label=f"baseline mu_incr={format_muincr(baseline.sweep_value)}, t_dev={baseline.t_dev}",
@@ -280,7 +300,6 @@ def plot_delay_compensation_example(
     recovered_loss_geometry = delayed_lost_geometry.intersection(compensated_polygon)
     recovered_loss_area = geometry_area(recovered_loss_geometry)
 
-    fig, ax = plt.subplots(figsize=(9, 7), dpi=150)
     _plot_border(
         ax,
         baseline.scaled_points,
@@ -334,16 +353,7 @@ def plot_delay_compensation_example(
         ha="left",
         bbox={"facecolor": "white", "alpha": 0.85, "edgecolor": "0.7"},
     )
-    plt.tight_layout()
-
-    out_path = OUTPUT_DIR / (
-        f"delay_compensation_muincr{format_muincr(baseline.sweep_value)}_tdev{baseline.t_dev}"
-        f"_delay{delayed.t_dev}_compincr{format_muincr(compensated.sweep_value)}.png"
-    )
-    plt.savefig(out_path)
-    plt.close(fig)
-
-    return out_path, {
+    return {
         "baseline_area_scaled": geometry_area(baseline_polygon),
         "delayed_area_scaled": geometry_area(delayed_polygon),
         "compensated_area_scaled": geometry_area(compensated_polygon),
@@ -523,16 +533,96 @@ def plot_muincr_loss_series(losses_by_t_dev: dict[int, list[tuple[float, float]]
     ax.grid(True)
     ax.legend(loc="best")
     plt.tight_layout()
-    out_path = OUTPUT_DIR / "mu_incr_relative_loss.png"
+    out_path = OUTPUT_DIR / "compensation_mu_incr_relative_loss.png"
     plt.savefig(out_path)
     plt.close(fig)
     return out_path
 
 
+def draw_muincr_loss_series(ax, losses_by_t_dev: dict[int, list[tuple[float | str, float]]]) -> None:
+    x_order: list[float | str] = [1.1, 1.2, 1.3, 1.4, 1.5, sc.MU_INCR_NO_CONSTRAINT]
+    x_positions = {value: idx for idx, value in enumerate(x_order)}
+    for t_dev, values in sorted(losses_by_t_dev.items()):
+        values = sorted(values, key=lambda item: x_positions[item[0]])
+        ax.plot(
+            [x_positions[item[0]] for item in values],
+            [item[1] for item in values],
+            marker="o",
+            linewidth=1.8,
+            label=f"Delay to {t_dev_to_year(t_dev)}",
+        )
+
+    ax.set_xlabel("mu_incr")
+    ax.set_ylabel("Relative loss")
+    ax.set_title("Relative loss by mu_incr")
+    ax.set_xticks(list(x_positions.values()))
+    ax.set_xticklabels(["1.1", "1.2", "1.3", "1.4", "1.5", "none"])
+    ax.set_ylim(bottom=0.0)
+    ax.grid(True)
+    ax.legend(loc="best")
+
+
+def draw_lost_region_panel(ax, base: BorderScenario, comp: BorderScenario, annotate_loss: float) -> dict[str, float]:
+    base_polygon, _ = build_polygon_from_border(
+        base.scaled_points,
+        label=f"baseline mu_incr={format_muincr(base.sweep_value)}, t_dev={base.t_dev}",
+        repair_invalid=REPAIR_INVALID_POLYGONS,
+    )
+    comp_polygon, _ = build_polygon_from_border(
+        comp.scaled_points,
+        label=f"comp mu_incr={format_muincr(comp.sweep_value)}, t_dev={comp.t_dev}",
+        repair_invalid=REPAIR_INVALID_POLYGONS,
+    )
+    lost_area, relative_loss, lost_geometry = relative_area_loss(base_polygon, comp_polygon)
+
+    _plot_border(
+        ax,
+        base.scaled_points,
+        f"Baseline year {t_dev_to_year(base.t_dev)}",
+        "tab:blue",
+    )
+    _plot_border(ax, comp.scaled_points, _scenario_role_label(base, comp), "tab:orange")
+
+    lost_region_labeled = False
+    for coords in iter_polygon_patches(lost_geometry):
+        ax.fill(
+            coords[:, 0],
+            coords[:, 1],
+            color="tab:red",
+            alpha=0.25,
+            label="Lost region" if not lost_region_labeled else None,
+        )
+        lost_region_labeled = True
+
+    ax.set_xlabel("Scaled Q")
+    ax.set_ylabel("Scaled Delta T")
+    ax.set_title(f"Delay to {t_dev_to_year(comp.t_dev)}")
+    ax.set_xlim(*common_scaled_axis_limits()[:2])
+    ax.set_ylim(*common_scaled_axis_limits()[2:])
+    ax.grid(True)
+    ax.legend(loc="best")
+    ax.text(
+        0.02,
+        0.98,
+        f"Relative loss = {annotate_loss:.4f}",
+        transform=ax.transAxes,
+        va="top",
+        ha="left",
+        bbox={"facecolor": "white", "alpha": 0.8, "edgecolor": "0.7"},
+    )
+
+    return {
+        "base_area_scaled": geometry_area(base_polygon),
+        "comp_area_scaled": geometry_area(comp_polygon),
+        "lost_area_scaled": lost_area,
+        "relative_loss": relative_loss,
+    }
+
+
 def run_muincr_analysis() -> None:
     rows = compute_muincr_loss_table(BASELINE_MU_INCR, COMPARE_MU_INCR_VALUES)
     losses_by_t_dev = compute_muincr_loss_series_with_none(BASELINE_MU_INCR, COMPARE_MU_INCR_VALUES)
-    xlsx_path = save_loss_table_xlsx(rows, OUTPUT_DIR / "mu_incr_loss_table.xlsx")
+    xlsx_path = save_loss_table_xlsx(rows, OUTPUT_DIR / "compensation_mu_incr_loss_table.xlsx")
     plot_path = plot_muincr_loss_series(losses_by_t_dev)
     print(f"Saved mu_incr loss table: {xlsx_path}")
     print(f"Saved mu_incr loss plot: {plot_path}")
@@ -587,9 +677,88 @@ def run_delay_compensation_series() -> None:
             )
 
 
-if __name__ == "__main__":
+def run_muincr_summary_panel() -> None:
+    losses_by_t_dev = compute_muincr_loss_series_with_none(BASELINE_MU_INCR, COMPARE_MU_INCR_VALUES)
+    fig, axes = plt.subplots(2, 2, figsize=(16, 12), dpi=150)
+    axes = axes.ravel()
+
+    base, _ = load_scaled_muincr_comparison(
+        SCALING_BASELINE_MU_INCR,
+        SCALING_BASELINE_T_DEV,
+        SCALING_BASELINE_MU_INCR,
+        SCALING_BASELINE_T_DEV,
+    )
+    target_t_devs = [5, 6, 7]
+    for idx, t_dev in enumerate(target_t_devs):
+        _, comp = load_scaled_muincr_comparison(
+            SCALING_BASELINE_MU_INCR,
+            SCALING_BASELINE_T_DEV,
+            SCALING_BASELINE_MU_INCR,
+            t_dev,
+        )
+        draw_lost_region_panel(axes[idx], base, comp, annotate_loss=losses_by_t_dev[t_dev][0][1])
+
+    draw_muincr_loss_series(axes[3], losses_by_t_dev)
+    fig.suptitle(
+        f"mu_incr summary: baseline mu_incr={SCALING_BASELINE_MU_INCR:.2f}, year {t_dev_to_year(SCALING_BASELINE_T_DEV)}",
+        fontsize=22,
+    )
+    plt.tight_layout()
+    out_path = OUTPUT_DIR / "compensation_mu_incr_summary_panel_2x2.png"
+    plt.savefig(out_path)
+    plt.close(fig)
+    print(f"Saved mu_incr 2x2 summary panel: {out_path}")
+
+
+def run_delay_compensation_panels() -> None:
+    baseline, _ = load_scaled_muincr_comparison(
+        SCALING_BASELINE_MU_INCR,
+        SCALING_BASELINE_T_DEV,
+        SCALING_BASELINE_MU_INCR,
+        SCALING_BASELINE_T_DEV,
+    )
+    panel_comp_values = [1.2, 1.3, 1.4, 1.5]
+
+    for delay_t_dev in [6, 7]:
+        _, delayed = load_scaled_muincr_comparison(
+            SCALING_BASELINE_MU_INCR,
+            SCALING_BASELINE_T_DEV,
+            SCALING_BASELINE_MU_INCR,
+            delay_t_dev,
+        )
+
+        fig, axes = plt.subplots(2, 2, figsize=(16, 12), dpi=150)
+        axes = axes.ravel()
+
+        for idx, comp_mu_incr in enumerate(panel_comp_values):
+            _, compensated = load_scaled_muincr_comparison(
+                SCALING_BASELINE_MU_INCR,
+                SCALING_BASELINE_T_DEV,
+                comp_mu_incr,
+                delay_t_dev,
+            )
+            draw_delay_compensation_panel(axes[idx], baseline, delayed, compensated)
+
+        fig.suptitle(
+            f"mu_incr compensation for delay to {t_dev_to_year(delay_t_dev)}",
+            fontsize=22,
+        )
+        plt.tight_layout()
+        out_path = OUTPUT_DIR / f"compensation_mu_incr_delay_panel_delay{delay_t_dev}_2x2.png"
+        plt.savefig(out_path)
+        plt.close(fig)
+        print(f"Saved mu_incr delay-compensation 2x2 panel: {out_path}")
+
+
+def main() -> None:
     if not SHAPELY_AVAILABLE:
         raise RuntimeError("This script requires shapely.")
     run_muincr_analysis()
     run_muincr_loss_regions()
     run_delay_compensation_series()
+    run_muincr_summary_panel()
+    run_delay_compensation_panels()
+
+
+if __name__ == "__main__":
+    main()
