@@ -16,6 +16,8 @@ from scaling_utils import compute_global_scaling_bounds, normalize_points
 
 # Enable any subset of scenarios for plotting.
 PLOT_CHANGE_MU_MAX = True
+PLOT_CHANGE_MU_MAX_NO_CONSTRAINT = False
+PLOT_CHANGE_MU_MAX_AND_MU_INCR = False
 PLOT_CHANGE_T_TAR = False
 PLOT_CHANGE_MU_MAX_OPTIMAL_MU = False
 PLOT_CHANGE_MU_INCR = False
@@ -41,19 +43,48 @@ plt.rcParams.update(
 COLORS = ["red", "blue", "green", "orange", "brown", "cyan", "magenta"]
 MARKERS = ["o", "<", ">", "^", "s", "D", "P"]
 
+_PLOT_SCENARIO_ENV_NAME = "NCC_PLOT_SCENARIO"
+_PLOT_FLAG_BY_NAME = {
+    sc.SCENARIO_CHANGE_MU_MAX: "PLOT_CHANGE_MU_MAX",
+    sc.SCENARIO_CHANGE_MU_MAX_NO_CONSTRAINT: "PLOT_CHANGE_MU_MAX_NO_CONSTRAINT",
+    sc.SCENARIO_CHANGE_MU_MAX_AND_MU_INCR: "PLOT_CHANGE_MU_MAX_AND_MU_INCR",
+    sc.SCENARIO_CHANGE_T_TAR: "PLOT_CHANGE_T_TAR",
+    sc.SCENARIO_CHANGE_MU_MAX_OPTIMAL_MU: "PLOT_CHANGE_MU_MAX_OPTIMAL_MU",
+    sc.SCENARIO_CHANGE_MU_INCR: "PLOT_CHANGE_MU_INCR",
+}
+
+
+def _apply_plot_scenario_override_from_env():
+    override = os.environ.get(_PLOT_SCENARIO_ENV_NAME)
+    if not override:
+        return
+    if override not in _PLOT_FLAG_BY_NAME:
+        allowed = ", ".join(sorted(_PLOT_FLAG_BY_NAME))
+        raise ValueError(
+            f"Unsupported {_PLOT_SCENARIO_ENV_NAME}={override!r}. Allowed values: {allowed}"
+        )
+
+    for flag_name in _PLOT_FLAG_BY_NAME.values():
+        globals()[flag_name] = False
+    globals()[_PLOT_FLAG_BY_NAME[override]] = True
+
+
+_apply_plot_scenario_override_from_env()
+
 
 def _configured_t_dev_values():
     t_dev_values = set()
     scenarios = [
         sc.SCENARIO_CHANGE_MU_MAX,
+        sc.SCENARIO_CHANGE_MU_MAX_NO_CONSTRAINT,
+        sc.SCENARIO_CHANGE_MU_MAX_AND_MU_INCR,
         sc.SCENARIO_CHANGE_T_TAR,
         sc.SCENARIO_CHANGE_MU_MAX_OPTIMAL_MU,
         sc.SCENARIO_CHANGE_MU_INCR,
     ]
     for scenario_name in scenarios:
-        baseline = sc.scenario_baseline(scenario_name)
         for sweep_value in sc.scenario_sweep_values(scenario_name):
-            t_dev_values.update(sc.t_dev_runs(sweep_value, baseline))
+            t_dev_values.update(sc.scenario_t_dev_runs(scenario_name, sweep_value))
     if not t_dev_values:
         raise ValueError("No t_dev values found from scenario_config.")
     return sorted(t_dev_values)
@@ -74,6 +105,17 @@ STYLE_BY_TDEV = _build_style_by_tdev()
 def _scenario_label(scenario_name, sweep_value):
     if scenario_name == sc.SCENARIO_CHANGE_MU_MAX:
         return f"mu_max={sweep_value:.2f}", f"RS for mu_max={sweep_value:.2f}"
+    if scenario_name == sc.SCENARIO_CHANGE_MU_MAX_NO_CONSTRAINT:
+        return (
+            f"mu_max={sweep_value:.2f}, mu_incr=none",
+            f"RS for mu_max={sweep_value:.2f} (mu_incr=none)",
+        )
+    if scenario_name == sc.SCENARIO_CHANGE_MU_MAX_AND_MU_INCR:
+        mu_max, mu_incr = sweep_value
+        return (
+            f"mu_max={mu_max:.2f}, mu_incr={mu_incr:.2f}",
+            f"RS for mu_max={mu_max:.2f}, mu_incr={mu_incr:.2f}",
+        )
     if scenario_name == sc.SCENARIO_CHANGE_T_TAR:
         year = 2015 + 5 * int(round(sweep_value))
         return f"t_tar={year}", f"RS for t_tar={year}"
@@ -87,6 +129,8 @@ def _scenario_label(scenario_name, sweep_value):
 
 
 def _format_sweep_value(sweep_value):
+    if isinstance(sweep_value, (tuple, list)) and len(sweep_value) == 2:
+        return f"mu{float(sweep_value[0]):.2f}_muincr{float(sweep_value[1]):.2f}"
     if isinstance(sweep_value, str):
         return sweep_value.replace(" ", "_")
     return f"{float(sweep_value):.2f}"
@@ -127,7 +171,7 @@ def _plot_series(ax, points, color, marker, label):
 def _plot_one_scenario(scenario_name):
     baseline = sc.scenario_baseline(scenario_name)
     sweep_values = sc.scenario_sweep_values(scenario_name)
-    reference_candidates = sorted(set(sc.t_dev_runs(baseline, baseline)))
+    reference_candidates = sorted(set(sc.scenario_t_dev_runs(scenario_name, baseline)))
     reference_t_dev = reference_candidates[0]
     reference_file = Path(sc.data_filename(scenario_name, baseline, reference_t_dev))
     reference_points = None
@@ -152,7 +196,7 @@ def _plot_one_scenario(scenario_name):
                 )
             )
 
-        for t_dev in sc.t_dev_runs(sweep_value, baseline):
+        for t_dev in sc.scenario_t_dev_runs(scenario_name, sweep_value):
             if reference_points is not None and t_dev == reference_t_dev:
                 continue
             path = Path(sc.data_filename(scenario_name, sweep_value, t_dev))
@@ -216,6 +260,10 @@ if __name__ == "__main__":
     selected = []
     if PLOT_CHANGE_MU_MAX:
         selected.append(sc.SCENARIO_CHANGE_MU_MAX)
+    if PLOT_CHANGE_MU_MAX_NO_CONSTRAINT:
+        selected.append(sc.SCENARIO_CHANGE_MU_MAX_NO_CONSTRAINT)
+    if PLOT_CHANGE_MU_MAX_AND_MU_INCR:
+        selected.append(sc.SCENARIO_CHANGE_MU_MAX_AND_MU_INCR)
     if PLOT_CHANGE_T_TAR:
         selected.append(sc.SCENARIO_CHANGE_T_TAR)
     if PLOT_CHANGE_MU_MAX_OPTIMAL_MU:
