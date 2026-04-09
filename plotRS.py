@@ -166,25 +166,26 @@ if __name__ == '__main__':
 
     elif RUN_CHANGE_MU_MAX_AND_MU_INCR:
         sweep_values = sc.scenario_sweep_values(sc.SCENARIO_CHANGE_MU_MAX_AND_MU_INCR)
-        t_tar = sc.DEFAULT_T_TAR
-        for mu_max, mu_incr_value in sweep_values:
-            for t_dev in sc.scenario_t_dev_runs(
-                sc.SCENARIO_CHANGE_MU_MAX_AND_MU_INCR,
-                (mu_max, mu_incr_value),
-            ):
-                out_name = sc.data_filename(
+        for t_tar in sc.scenario_t_tar_values(sc.SCENARIO_CHANGE_MU_MAX_AND_MU_INCR):
+            for mu_max, mu_incr_value in sweep_values:
+                for t_dev in sc.scenario_t_dev_runs(
                     sc.SCENARIO_CHANGE_MU_MAX_AND_MU_INCR,
                     (mu_max, mu_incr_value),
-                    t_dev,
-                )
-                _run_single_case(
-                    t_dev,
-                    t_tar,
-                    mu_max,
-                    out_name,
-                    remove_mu_constr=False,
-                    mu_incr=mu_incr_value,
-                )
+                ):
+                    out_name = sc.data_filename(
+                        sc.SCENARIO_CHANGE_MU_MAX_AND_MU_INCR,
+                        (mu_max, mu_incr_value),
+                        t_dev,
+                        t_tar=t_tar,
+                    )
+                    _run_single_case(
+                        t_dev,
+                        t_tar,
+                        mu_max,
+                        out_name,
+                        remove_mu_constr=False,
+                        mu_incr=mu_incr_value,
+                    )
 
     elif RUN_CHANGE_T_TAR:
         mu_max = sc.DEFAULT_MU_MAX

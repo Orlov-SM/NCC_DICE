@@ -136,6 +136,15 @@ def _format_sweep_value(sweep_value):
     return f"{float(sweep_value):.2f}"
 
 
+def _load_points_with_legacy_fallback(path: Path, legacy_path: Path | None = None):
+    if path.exists():
+        return _load_points(path)
+    if legacy_path is not None and legacy_path.exists():
+        print(f"Using legacy file name: {legacy_path}")
+        return _load_points(legacy_path)
+    raise FileNotFoundError(path)
+
+
 def _load_points(path):
     points = np.loadtxt(path, delimiter=",")
     if points.ndim == 1:
@@ -171,89 +180,111 @@ def _plot_series(ax, points, color, marker, label):
 def _plot_one_scenario(scenario_name):
     baseline = sc.scenario_baseline(scenario_name)
     sweep_values = sc.scenario_sweep_values(scenario_name)
+    t_tar_values = sc.scenario_t_tar_values(scenario_name)
     reference_candidates = sorted(set(sc.scenario_t_dev_runs(scenario_name, baseline)))
     reference_t_dev = reference_candidates[0]
-    reference_file = Path(sc.data_filename(scenario_name, baseline, reference_t_dev))
-    reference_points = None
+    for t_tar in t_tar_values:
+        reference_file = Path(sc.data_filename(scenario_name, baseline, reference_t_dev, t_tar=t_tar))
+        reference_points = None
 
-    if reference_file.exists():
-        reference_points = _load_points(reference_file)
-    else:
-        print(f"Reference file not found: {reference_file}")
-
-    for sweep_value in sweep_values:
-        fig, ax = plt.subplots(figsize=(8, 6), dpi=150)
-        series_to_plot = []
-
-        if reference_points is not None:
-            ref_color, ref_marker = STYLE_BY_TDEV[reference_t_dev]
-            series_to_plot.append(
-                (
-                    f"Year {2015 + 5 * reference_t_dev} (reference)",
-                    reference_points,
-                    ref_color,
-                    ref_marker,
-                )
+        legacy_reference = None
+        if scenario_name == sc.SCENARIO_CHANGE_MU_MAX_AND_MU_INCR and int(round(t_tar)) == sc.DEFAULT_T_TAR:
+            legacy_reference = Path(
+                f"plots_data/NCC_mu{baseline[0]:.2f}_muincr{baseline[1]:.2f}_tdev{reference_t_dev}.csv"
             )
 
-        for t_dev in sc.scenario_t_dev_runs(scenario_name, sweep_value):
-            if reference_points is not None and t_dev == reference_t_dev:
-                continue
-            path = Path(sc.data_filename(scenario_name, sweep_value, t_dev))
-            if not path.exists():
-                print(f"Missing data file: {path}")
+        try:
+            reference_points = _load_points_with_legacy_fallback(reference_file, legacy_reference)
+        except FileNotFoundError:
+            print(f"Reference file not found: {reference_file}")
+
+        for sweep_value in sweep_values:
+            fig, ax = plt.subplots(figsize=(8, 6), dpi=150)
+            series_to_plot = []
+
+            if reference_points is not None:
+                ref_color, ref_marker = STYLE_BY_TDEV[reference_t_dev]
+                series_to_plot.append(
+                    (
+                        f"Year {2015 + 5 * reference_t_dev} (reference)",
+                        reference_points,
+                        ref_color,
+                        ref_marker,
+                    )
+                )
+
+            for t_dev in sc.scenario_t_dev_runs(scenario_name, sweep_value):
+                if reference_points is not None and t_dev == reference_t_dev:
+                    continue
+                path = Path(sc.data_filename(scenario_name, sweep_value, t_dev, t_tar=t_tar))
+                legacy_path = None
+                if scenario_name == sc.SCENARIO_CHANGE_MU_MAX_AND_MU_INCR and int(round(t_tar)) == sc.DEFAULT_T_TAR:
+                    mu_max, mu_incr = sweep_value
+                    legacy_path = Path(
+                        f"plots_data/NCC_mu{mu_max:.2f}_muincr{mu_incr:.2f}_tdev{t_dev}.csv"
+                    )
+
+                try:
+                    points = _load_points_with_legacy_fallback(path, legacy_path)
+                except FileNotFoundError:
+                    print(f"Missing data file: {path}")
+                    continue
+
+                color, marker = STYLE_BY_TDEV[t_dev]
+                series_to_plot.append((f"Year {2015 + 5 * t_dev}", points, color, marker))
+
+            if not series_to_plot:
+                plt.close(fig)
+                print(
+                    f"No plottable points for scenario={scenario_name}, "
+                    f"sweep={_format_sweep_value(sweep_value)}, t_tar={int(round(t_tar))}"
+                )
                 continue
 
-            points = _load_points(path)
-            color, marker = STYLE_BY_TDEV[t_dev]
-            series_to_plot.append((f"Year {2015 + 5 * t_dev}", points, color, marker))
+            raw_all_points = [points for _, points, _, _ in series_to_plot]
+            if PLOT_IN_SCALED_COORDS:
+                scaling_bounds = compute_global_scaling_bounds(raw_all_points)
+                plotted_series = [
+                    (label, normalize_points(points, scaling_bounds), color, marker)
+                    for label, points, color, marker in series_to_plot
+                ]
+            else:
+                plotted_series = series_to_plot
 
-        if not series_to_plot:
+            for label, points, color, marker in plotted_series:
+                _plot_series(ax, points, color, marker, label)
+
+            merged = np.vstack([points for _, points, _, _ in plotted_series])
+            x_min, x_max = merged[:, 0].min(), merged[:, 0].max()
+            y_min, y_max = merged[:, 1].min(), merged[:, 1].max()
+            x_pad = max(5.0, 0.05 * (x_max - x_min))
+            y_pad = max(0.05, 0.08 * (y_max - y_min))
+
+            target_year = sc.t_index_to_year(t_tar)
+            if PLOT_IN_SCALED_COORDS:
+                x_pad = max(0.02, 0.05 * (x_max - x_min))
+                y_pad = max(0.02, 0.08 * (y_max - y_min))
+                ax.set_xlabel("Scaled Q")
+                ax.set_ylabel("Scaled Delta T")
+            else:
+                ax.set_xlabel(f"Q in {target_year}")
+                ax.set_ylabel(f"Delta T in {target_year} (C)")
+            sweep_label, title = _scenario_label(scenario_name, sweep_value)
+            ax.set_title(f"{title}, target year {target_year}")
+            ax.set_xlim([x_min - x_pad, x_max + x_pad])
+            ax.set_ylim([max(0.0, y_min - y_pad), y_max + y_pad] if not PLOT_IN_SCALED_COORDS else [y_min - y_pad, y_max + y_pad])
+            ax.grid(True)
+            ax.legend(loc="center", frameon=True)
+            plt.tight_layout()
+
+            suffix = "_scaled" if PLOT_IN_SCALED_COORDS else ""
+            out_name = (
+                f"{scenario_name}_{_format_sweep_value(sweep_value)}_year{target_year}{suffix}.png"
+            )
+            out_path = OUTPUT_DIR / out_name
+            plt.savefig(out_path)
             plt.close(fig)
-            print(f"No plottable points for scenario={scenario_name}, sweep={_format_sweep_value(sweep_value)}")
-            continue
-
-        raw_all_points = [points for _, points, _, _ in series_to_plot]
-        if PLOT_IN_SCALED_COORDS:
-            scaling_bounds = compute_global_scaling_bounds(raw_all_points)
-            plotted_series = [
-                (label, normalize_points(points, scaling_bounds), color, marker)
-                for label, points, color, marker in series_to_plot
-            ]
-        else:
-            plotted_series = series_to_plot
-
-        for label, points, color, marker in plotted_series:
-            _plot_series(ax, points, color, marker, label)
-
-        merged = np.vstack([points for _, points, _, _ in plotted_series])
-        x_min, x_max = merged[:, 0].min(), merged[:, 0].max()
-        y_min, y_max = merged[:, 1].min(), merged[:, 1].max()
-        x_pad = max(5.0, 0.05 * (x_max - x_min))
-        y_pad = max(0.05, 0.08 * (y_max - y_min))
-
-        if PLOT_IN_SCALED_COORDS:
-            x_pad = max(0.02, 0.05 * (x_max - x_min))
-            y_pad = max(0.02, 0.08 * (y_max - y_min))
-            ax.set_xlabel("Scaled Q")
-            ax.set_ylabel("Scaled Delta T")
-        else:
-            ax.set_xlabel("Q in 2100")
-            ax.set_ylabel("Delta T in 2100 (C)")
-        sweep_label, title = _scenario_label(scenario_name, sweep_value)
-        ax.set_title(title)
-        ax.set_xlim([x_min - x_pad, x_max + x_pad])
-        ax.set_ylim([max(0.0, y_min - y_pad), y_max + y_pad] if not PLOT_IN_SCALED_COORDS else [y_min - y_pad, y_max + y_pad])
-        ax.grid(True)
-        ax.legend(loc="center", frameon=True)
-        plt.tight_layout()
-
-        suffix = "_scaled" if PLOT_IN_SCALED_COORDS else ""
-        out_name = f"{scenario_name}_{_format_sweep_value(sweep_value)}{suffix}.png"
-        out_path = OUTPUT_DIR / out_name
-        plt.savefig(out_path)
-        plt.close(fig)
-        print(f"Saved: {out_path} ({sweep_label})")
+            print(f"Saved: {out_path} ({sweep_label}, target year {target_year})")
 
 
 if __name__ == "__main__":

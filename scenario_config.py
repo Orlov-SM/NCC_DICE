@@ -18,6 +18,7 @@ MU_INCR_NO_CONSTRAINT = "no_constraint"
 
 MU_MAX_RANGE = np.linspace(1.2, 2.1, 10)
 MU_MAX_AND_MU_INCR_MU_MAX_RANGE = np.linspace(1.2, 2.0, 9)
+MU_MAX_AND_MU_INCR_T_TAR_RANGE = np.array([17, 19, 21])
 T_TAR_RANGE = np.arange(17, 20, 1)
 MU_MAX_OPTIMAL_RANGE = np.arange(1.2, 0.99, -0.05)
 MU_INCR_RANGE = [1.1, 1.2, 1.3, 1.4, 1.5, MU_INCR_NO_CONSTRAINT]
@@ -26,6 +27,7 @@ MU_MAX_NO_CONSTRAINT_ENV = "NCC_MU_MAX_NO_CONSTRAINT_VALUES"
 MU_INCR_ENV = "NCC_MU_INCR_VALUES"
 MU_MAX_AND_MU_INCR_MU_MAX_ENV = "NCC_MU_MAX_AND_MU_INCR_MU_MAX_VALUES"
 MU_MAX_AND_MU_INCR_MU_INCR_ENV = "NCC_MU_MAX_AND_MU_INCR_MU_INCR_VALUES"
+MU_MAX_AND_MU_INCR_T_TAR_ENV = "NCC_MU_MAX_AND_MU_INCR_T_TAR_VALUES"
 
 
 def _is_close_or_equal(value, baseline):
@@ -46,14 +48,23 @@ def t_dev_runs(value, baseline):
     return [4,5,6,7,8,9]
 
 
-def data_filename(scenario_name, sweep_value, t_dev):
+def t_index_to_year(t_index):
+    return 2015 + 5 * int(round(t_index))
+
+
+def data_filename(scenario_name, sweep_value, t_dev, t_tar=None):
     if scenario_name == SCENARIO_CHANGE_MU_MAX:
         return f"plots_data/NCC_mu{sweep_value:.2f}_tdev{t_dev}.csv"
     if scenario_name == SCENARIO_CHANGE_MU_MAX_NO_CONSTRAINT:
         return f"plots_data/NCC_mu{sweep_value:.2f}_tdev{t_dev}_muincr_none.csv"
     if scenario_name == SCENARIO_CHANGE_MU_MAX_AND_MU_INCR:
         mu_max, mu_incr = sweep_value
-        return f"plots_data/NCC_mu{mu_max:.2f}_muincr{mu_incr:.2f}_tdev{t_dev}.csv"
+        target_t = DEFAULT_T_TAR if t_tar is None else int(round(t_tar))
+        target_year = t_index_to_year(target_t)
+        return (
+            f"plots_data/NCC_mu{mu_max:.2f}_muincr{mu_incr:.2f}"
+            f"_tdev{t_dev}_year{target_year}.csv"
+        )
     if scenario_name == SCENARIO_CHANGE_T_TAR:
         return f"plots_data/NCC_t_tar{sweep_value:.2f}_tdev{t_dev}.csv"
     if scenario_name == SCENARIO_CHANGE_MU_MAX_OPTIMAL_MU:
@@ -142,3 +153,11 @@ def scenario_baseline(scenario_name):
 
 def scenario_t_dev_runs(scenario_name, sweep_value):
     return t_dev_runs(sweep_value, scenario_baseline(scenario_name))
+
+
+def scenario_t_tar_values(scenario_name):
+    if scenario_name == SCENARIO_CHANGE_MU_MAX_AND_MU_INCR:
+        override = _parse_float_list_from_env(MU_MAX_AND_MU_INCR_T_TAR_ENV)
+        values = override if override is not None else MU_MAX_AND_MU_INCR_T_TAR_RANGE
+        return np.array([int(round(value)) for value in values], dtype=int)
+    return np.array([DEFAULT_T_TAR], dtype=int)

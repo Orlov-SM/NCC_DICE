@@ -44,6 +44,8 @@ plt.rcParams.update(
 BASELINE_MU_MAX = sc.DEFAULT_MU_MAX
 BASELINE_MU_INCR = sc.DEFAULT_MU_INCR
 BASELINE_T_DEV = 1
+TARGET_T_TAR = int(round(float(os.environ.get("NCC_COMPENSATION_MU_MAX_AND_MU_INCR_T_TAR", sc.DEFAULT_T_TAR))))
+TARGET_YEAR = sc.t_index_to_year(TARGET_T_TAR)
 TARGET_T_DEVS = [4, 5, 6, 7, 8, 9]
 REPAIR_INVALID_POLYGONS = False
 
@@ -80,21 +82,30 @@ def _load_points(path: Path) -> np.ndarray:
     return points
 
 
+def _legacy_border_path(mu_max: float, mu_incr: float, t_dev: int) -> Path:
+    return Path(f"plots_data/NCC_mu{mu_max:.2f}_muincr{mu_incr:.2f}_tdev{t_dev}.csv")
+
+
 def _border_path(mu_max: float, mu_incr: float, t_dev: int) -> Path:
     return Path(
         sc.data_filename(
             sc.SCENARIO_CHANGE_MU_MAX_AND_MU_INCR,
             (mu_max, mu_incr),
             t_dev,
+            t_tar=TARGET_T_TAR,
         )
     )
 
 
 def load_border(mu_max: float, mu_incr: float, t_dev: int) -> np.ndarray:
     path = _border_path(mu_max, mu_incr, t_dev)
-    if not path.exists():
-        raise FileNotFoundError(f"Missing 2D-scenario border file: {path}")
-    return _load_points(path)
+    if path.exists():
+        return _load_points(path)
+    if TARGET_T_TAR == sc.DEFAULT_T_TAR:
+        legacy_path = _legacy_border_path(mu_max, mu_incr, t_dev)
+        if legacy_path.exists():
+            return _load_points(legacy_path)
+    raise FileNotFoundError(f"Missing 2D-scenario border file: {path}")
 
 
 def load_fixed_scaling_bounds() -> ScalingBounds:
@@ -188,6 +199,7 @@ def compute_loss_rows() -> list[dict[str, float | int]]:
                         "comp_mu_max": float(mu_max),
                         "comp_mu_incr": float(mu_incr),
                         "comp_t_dev": int(t_dev),
+                        "target_year": int(TARGET_YEAR),
                         "delay_year": int(t_dev_to_year(t_dev)),
                         "q_min": float(bounds.q_min),
                         "q_max": float(bounds.q_max),
@@ -249,13 +261,13 @@ def plot_relative_loss_heatmaps(dataframe: pd.DataFrame) -> Path:
         ax.set_yticklabels([f"{value:.2f}" for value in mu_incr_grid])
 
     fig.suptitle(
-        "Relative loss heatmaps\nbaseline mu_max=1.20, mu_incr=1.10, year 2020",
+        f"Relative loss heatmaps\nbaseline mu_max=1.20, mu_incr=1.10, year 2020, target year {TARGET_YEAR}",
         fontsize=20,
     )
     if image is not None:
         fig.colorbar(image, ax=axes.tolist(), shrink=0.88, label="Relative loss")
 
-    out_path = OUTPUT_DIR / "compensation_mu_max_and_mu_incr_relative_loss_heatmaps.png"
+    out_path = OUTPUT_DIR / f"compensation_mu_max_and_mu_incr_relative_loss_heatmaps_year{TARGET_YEAR}.png"
     plt.savefig(out_path)
     plt.close(fig)
     return out_path
@@ -295,7 +307,7 @@ def plot_relative_loss_bar3d(dataframe: pd.DataFrame) -> Path:
         ax.view_init(elev=26, azim=-58)
 
     fig.subplots_adjust(left=0.04, right=0.98, bottom=0.08, top=0.94, wspace=0.12, hspace=0.18)
-    out_path = OUTPUT_DIR / "compensation_mu_max_and_mu_incr_relative_loss_bar3d.png"
+    out_path = OUTPUT_DIR / f"compensation_mu_max_and_mu_incr_relative_loss_bar3d_year{TARGET_YEAR}.png"
     plt.savefig(out_path)
     plt.close(fig)
     return out_path
@@ -327,11 +339,11 @@ def plot_relative_loss_line_slices(dataframe: pd.DataFrame) -> Path:
 
     axes[0].legend(loc="best", ncols=2)
     fig.suptitle(
-        "Relative-loss slices by mu_incr\nbaseline mu_max=1.20, mu_incr=1.10, year 2020",
+        f"Relative-loss slices by mu_incr\nbaseline mu_max=1.20, mu_incr=1.10, year 2020, target year {TARGET_YEAR}",
         fontsize=20,
     )
 
-    out_path = OUTPUT_DIR / "compensation_mu_max_and_mu_incr_relative_loss_lines.png"
+    out_path = OUTPUT_DIR / f"compensation_mu_max_and_mu_incr_relative_loss_lines_year{TARGET_YEAR}.png"
     plt.savefig(out_path)
     plt.close(fig)
     return out_path
@@ -343,7 +355,7 @@ def main() -> None:
 
     xlsx_path = save_loss_table_xlsx(
         rows,
-        OUTPUT_DIR / "compensation_mu_max_and_mu_incr_loss_table.xlsx",
+        OUTPUT_DIR / f"compensation_mu_max_and_mu_incr_loss_table_year{TARGET_YEAR}.xlsx",
     )
     heatmap_path = plot_relative_loss_heatmaps(dataframe)
     bar3d_path = plot_relative_loss_bar3d(dataframe)
