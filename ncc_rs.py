@@ -314,7 +314,7 @@ def makeNCCModel(
     m.constr_cumulativeemissions = Constraint(m.t, rule = constr_cumulativeemissions_rule)
 
     def _alpha_calibration(m, t): #только этот менял
-        expr1 = sum(m.alpha[t]*m.fraction[box]*m.t_scale[box]*(1-2.718**(-100./(m.alpha[t] * m.t_scale[box]))) for box in m.box)
+        expr1 = sum(m.alpha[t]*m.fraction[box]*m.t_scale[box]*(1-exp(-100./(m.alpha[t] * m.t_scale[box]))) for box in m.box)
         return 35+0.019*((m.Ecum[t]+m.CumLand[t])-(m.MAT[t]-588)) + 4.165*m.TAT[t] == expr1
     m.alpha_calibration = Constraint(m.t, rule=_alpha_calibration)
 
@@ -322,12 +322,12 @@ def makeNCCModel(
         if t == m.t.first():
             return Constraint.Skip
         prt = m.t.prev(t)
-        expr1 = m.c_cycle[prt,box]*2.718**(-5./(m.alpha[prt]*m.t_scale[box]))
-        expr2 = m.fraction[box] * (m.E[prt]*2.781**(-5    /(m.alpha[prt]*m.t_scale[box]))*(1/3.666))
-        expr3 = m.fraction[box] * (m.E[prt]*2.781**(-(5-1)/(m.alpha[prt]*m.t_scale[box]))*(1/3.666))
-        expr4 = m.fraction[box] * (m.E[prt]*2.781**(-(5-2)/(m.alpha[prt]*m.t_scale[box]))*(1/3.666))
-        expr5 = m.fraction[box] * (m.E[prt]*2.781**(-(5-3)/(m.alpha[prt]*m.t_scale[box]))*(1/3.666))
-        expr6 = m.fraction[box] * (m.E[prt]*2.781**(-(5-4)/(m.alpha[prt]*m.t_scale[box]))*(1/3.666))
+        expr1 = m.c_cycle[prt,box]*exp(-5./(m.alpha[prt]*m.t_scale[box]))
+        expr2 = m.fraction[box] * (m.E[prt]*exp(-5    /(m.alpha[prt]*m.t_scale[box]))*(1/3.666))
+        expr3 = m.fraction[box] * (m.E[prt]*exp(-(5-1)/(m.alpha[prt]*m.t_scale[box]))*(1/3.666))
+        expr4 = m.fraction[box] * (m.E[prt]*exp(-(5-2)/(m.alpha[prt]*m.t_scale[box]))*(1/3.666))
+        expr5 = m.fraction[box] * (m.E[prt]*exp(-(5-3)/(m.alpha[prt]*m.t_scale[box]))*(1/3.666))
+        expr6 = m.fraction[box] * (m.E[prt]*exp(-(5-4)/(m.alpha[prt]*m.t_scale[box]))*(1/3.666))
         return m.c_cycle[t,box] == expr1 + expr2 + expr3 +  expr4 + expr5 + expr6
     m.carbon_cycle_calibration = Constraint(m.t, m.box,rule=_carbon_cycle_calibration)
 
@@ -442,4 +442,3 @@ def makeNCCModel(
 
     m.OBJ = Objective(rule=obj_rule, sense=maximize)
     return m
-
